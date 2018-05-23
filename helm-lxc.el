@@ -6,7 +6,7 @@
 ;; URL: https://github.com/montag451/helm-lxc
 ;; Keywords: helm, lxc, convenience
 ;; Version: 0.1.0
-;; Package-Requires: (helm lxc-tramp cl-lib s)
+;; Package-Requires: ((emacs "25") (cl-lib "0.5") (helm "2.9.4") (lxc-tramp "0.1.0"))
 
 ;; This file is NOT part of GNU Emacs.
 
@@ -30,7 +30,7 @@
 (require 'helm)
 (require 'tramp)
 (require 'lxc-tramp)
-(require 's)
+(require 'subr-x)
 (eval-when-compile
   (require 'cl-lib))
 
@@ -69,16 +69,16 @@ as the user running Emacs."
 
 (defcustom helm-lxc-clean-up-on-shell-exit nil
   "Do some cleanup when a shell exits.
-If non-nil, when a shell exits its buffer is killed and its
-window, if any, is deleted."
+If non-nil, when a shell (created by attaching to a container)
+exits its buffer is killed and its window, if any, is quitted."
   :group 'helm-lxc
   :type 'boolean)
 
 (defcustom helm-lxc-attach-with-ssh nil
-  "Attach to the container using SSH instead of lxc-tramp.
+  "Attach to the container using SSH instead of `lxc-tramp'.
 If nil, SSH will never be used to attach to the container. If
 non-nil, SSH will be used if the container has at least an IP
-address (the first one returned by lxc-info is used)."
+address (the first one returned by `lxc-info' is used)."
   :group 'helm-lxc
   :type 'boolean)
 
@@ -86,6 +86,13 @@ address (the first one returned by lxc-info is used)."
   "User used to connect to container when `helm-lxc-attach-with-ssh is non-nil."
   :group 'helm-lxc
   :type 'string)
+
+(defvar helm-lxc-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map helm-map)
+    (define-key map (kbd "C-s") 'helm-lxc-start-persistent)
+    (define-key map (kbd "C-d") 'helm-lxc-stop-persistent)
+    map))
 
 (defun helm-lxc--face-from-state (state)
   (pcase state
@@ -97,15 +104,22 @@ address (the first one returned by lxc-info is used)."
   (unless (process-live-p proc)
     (let* ((buffer (process-buffer proc))
            (win (get-buffer-window buffer)))
-      (when win
-        (ignore-errors
-          (delete-window win)))
-      (kill-buffer buffer))))
+      (if win
+          (ignore-errors
+            (quit-window t win))
+        (kill-buffer buffer)))))
+
+(defun helm-lxc--process-file (&rest args)
+  "Run `process-file' with `non-essential' set to nil.
+Helm set `non-essential' to non-nil which prevent TRAMP from
+opening connections."
+  (let ((non-essential))
+    (apply #'process-file args)))
 
 (defun helm-lxc--process-lines (host program &optional delete-trailing-ws &rest args)
   (with-temp-buffer
     (let ((default-directory (or host default-directory)))
-      (when (zerop (apply 'process-file program nil t nil args))
+      (when (zerop (apply 'helm-lxc--process-file program nil t nil args))
         (when delete-trailing-ws
           (let ((delete-trailing-lines t))
             (delete-trailing-whitespace)))
@@ -120,12 +134,12 @@ address (the first one returned by lxc-info is used)."
           (nreverse lines))))))
 
 (defun helm-lxc--list-containers (host)
-  (let ((containers (helm-lxc--process-lines host "lxc-ls" t)))
+  (let ((containers (helm-lxc--process-lines host "lxc-ls" t "-1")))
     (mapcar (lambda (c)
               (let* ((info (helm-lxc--get-container-info host c))
                      (state (alist-get 'state info))
                      (face (helm-lxc--face-from-state state)))
-                (cons (propertize c 'face face) info)))
+                (propertize c 'face face 'helm-lxc info)))
             containers)))
 
 (defun helm-lxc--get-container-info (host container)
@@ -149,15 +163,57 @@ address (the first one returned by lxc-info is used)."
                               nil
                               "-i" "-H" "-n" container))
                         "")
-                    ","))))
+                    ","
+                    t))))
     `((host . ,host)
       (name . ,container)
       (state . ,state)
       (pid . ,pid)
       (ips . ,ips))))
 
-(defun helm-lxc--attach (container)
-  (let* ((source (assoc-default 'name (helm-get-current-source)))
+(defun helm-lxc--get-candidates (&optional marked)
+  (or (and marked (helm-marked-candidates :all-sources t))
+      (list (helm-get-selection nil 'withprop))))
+
+(defun helm-lxc--get-container-from-candidate (candidate)
+  (get-text-property 0 'helm-lxc candidate))
+
+(cl-defun helm-lxc--create-action (action &optional (marked t) &rest args)
+  (lambda (candidate &optional from-chain)
+    (let (rc)
+      (dolist (candidate
+               (or (and from-chain (list candidate))
+                   (helm-lxc--get-candidates marked))
+               rc)
+        (let* ((container (helm-lxc--get-container-from-candidate candidate))
+               (name (alist-get 'name container))
+               (host (alist-get 'host container))
+               (default-directory (or host default-directory))
+               (cmd (format "lxc-%s" action)))
+          (setq rc (apply #'helm-lxc--process-file cmd nil nil nil "-n" name args))
+          (unless (zerop rc)
+            (message "helm-lxc: lxc-%s on %s failed with return code %d" action name rc)))))))
+
+(defmacro helm-lxc--create-action-chain (marked &rest actions)
+  `(lambda (_candidate)
+     (dolist (candidate (helm-lxc--get-candidates ,marked))
+       (catch 'break
+         (dolist (action ',actions)
+           (let ((rc (pcase action
+                       ((pred stringp)
+                        (funcall (helm-lxc--create-action action nil) candidate t))
+                       (`(,name . ,args)
+                        (funcall (apply #'helm-lxc--create-action name nil args) candidate t))
+                       ((pred functionp)
+                        (funcall action candidate))
+                       (bad (error "Bad action: %S" bad)))))
+             (unless (and rc (zerop rc))
+               (throw 'break rc))))))))
+
+(defun helm-lxc--attach (_candidate)
+  (let* ((source-name (helm-attr 'name))
+         (candidate (car (helm-lxc--get-candidates)))
+         (container (helm-lxc--get-container-from-candidate candidate))
          (name (alist-get 'name container))
          (host (alist-get 'host container))
          (ip (car (alist-get 'ips container)))
@@ -172,92 +228,118 @@ address (the first one returned by lxc-info is used)."
                                      attach-user
                                      attach-host)))
          (shell-file-name "/bin/bash")
-         (buffer (shell (format "*shell %s@%s*" name source)))
+         (buffer (shell (format "*shell %s@%s*" name source-name)))
          (proc (get-buffer-process buffer)))
-    (when helm-lxc-clean-up-on-shell-exit
+    (when (and proc helm-lxc-clean-up-on-shell-exit)
       (add-function :after (process-sentinel proc) #'helm-lxc--process-sentinel))))
 
-(defun helm-lxc--execute-action (action &rest args)
-  (lambda (_)
-    (dolist (container (helm-marked-candidates :all-sources t))
-      (let* ((name (alist-get 'name container))
-             (host (alist-get 'host container))
-             (default-directory (or host default-directory)))
-        (unless (zerop (apply #'process-file (format "lxc-%s" action) nil nil nil "-n" name args))
-          (message "lxc-%s on %s failed" action name))))))
-
-(defmacro helm-lxc--chain-actions (&rest actions)
-  `(lambda (c)
-     (dolist (action ',actions)
-       (pcase action
-         ((pred stringp) (funcall (helm-lxc--execute-action action) c))
-         ((pred functionp) (funcall action c))
-         (`(,name . ,args) (funcall (apply #'helm-lxc--execute-action name args) c))
-         (bad (error "Bad action: %S" bad))))))
-
-(defun helm-lxc--connect-to-host (container)
-  (let* ((host (alist-get 'host container))
+(defun helm-lxc--connect-to-host (_candidate)
+  (let* ((candidate (car (helm-lxc--get-candidates)))
+         (container (helm-lxc--get-container-from-candidate candidate))
+         (host (alist-get 'host container))
          (default-directory (or host default-directory))
          (shell-file-name "/bin/bash")
          (buffer (shell (format "*shell %s*" host)))
          (proc (get-buffer-process buffer)))
-    (when helm-lxc-clean-up-on-shell-exit
+    (when (and proc helm-lxc-clean-up-on-shell-exit)
       (add-function :after (process-sentinel proc) #'helm-lxc--process-sentinel))))
 
-(defun helm-lxc--show-container-info (container)
-  (let ((buffer (get-buffer-create "*helm lxc info*")))
+(defun helm-lxc--show-container-info (_candidate)
+  (let* ((buffer (get-buffer-create "*helm lxc info*"))
+         (candidate (car (helm-lxc--get-candidates)))
+         (container (helm-lxc--get-container-from-candidate candidate)))
     (with-current-buffer buffer
       (erase-buffer)
       (insert (format "Name: %s\n" (alist-get 'name container)))
       (insert (format "Host: %s\n" (file-remote-p (alist-get 'host container) 'host)))
       (insert (format "State: %s\n" (alist-get 'state container)))
-      (insert (format "PID: %s\n" (alist-get 'pid container)))
-      (insert (format "IPs: %s\n" (s-join " " (alist-get 'ips container)))))
-    (switch-to-buffer buffer)))
+      (when-let ((pid (alist-get 'pid container)))
+        (insert (format "PID: %s\n" pid)))
+      (when-let ((ips (alist-get 'ips container)))
+        (insert (format "IPs: %s\n" (string-join ips " ")))))
+    (pop-to-buffer buffer)))
 
-(defun helm-lxc--action-transformer (actions container)
-  (let ((connect-action '("Connect to host" . helm-lxc--connect-to-host)))
+(defun helm-lxc--action-transformer (_actions _candidate)
+  (let* ((candidate (car (helm-lxc--get-candidates)))
+         (container (helm-lxc--get-container-from-candidate candidate))
+         (connect-action '("Connect to host" . helm-lxc--connect-to-host)))
     (pcase (alist-get 'state container)
       ("running" `(("Attach" . helm-lxc--attach)
-                   ("Stop" . ,(helm-lxc--execute-action "stop"))
-                   ("Stop and destroy" . ,(helm-lxc--chain-actions
+                   ("Stop" . ,(helm-lxc--create-action "stop"))
+                   ("Stop and destroy" . ,(helm-lxc--create-action-chain
+                                           t
                                            "stop"
                                            ("wait" "-s" "STOPPED")
                                            "destroy"))
-                   ("Restart" . ,(helm-lxc--chain-actions
+                   ("Restart" . ,(helm-lxc--create-action-chain
+                                  t
                                   "stop"
                                   ("wait" "-s" "STOPPED")
                                   ("start" "-d")))
-                   ("Restart and attach" . ,(helm-lxc--chain-actions
+                   ("Restart and attach" . ,(helm-lxc--create-action-chain
+                                             nil
                                              "stop"
                                              ("wait" "-s" "STOPPED")
                                              ("start" "-d")
                                              ("wait" "-s" "RUNNING")
                                              helm-lxc--attach))
-                   ("Freeze" . ,(helm-lxc--execute-action "freeze"))
+                   ("Freeze" . ,(helm-lxc--create-action "freeze"))
                    ,connect-action))
-      ("stopped" `(("Start and attach" . ,(helm-lxc--chain-actions
+      ("stopped" `(("Start and attach" . ,(helm-lxc--create-action-chain
+                                           nil
                                            ("start" "-d")
                                            ("wait" "-s" "RUNNING")
                                            helm-lxc--attach))
-                   ("Start" . ,(helm-lxc--execute-action "start" "-d"))
-                   ("Destroy" . ,(helm-lxc--execute-action "destroy"))
+                   ("Start" . ,(helm-lxc--create-action "start" t "-d"))
+                   ("Destroy" . ,(helm-lxc--create-action "destroy"))
                    ,connect-action))
-      ("frozen" `(("Unfreeze and attach" . ,(helm-lxc--chain-actions
+      ("frozen" `(("Unfreeze and attach" . ,(helm-lxc--create-action-chain
+                                             nil
                                              "unfreeze"
                                              ("wait" "-s" "RUNNING")
                                              helm-lxc--attach))
-                  ("Unfreeze" . ,(helm-lxc--execute-action "unfreeze"))
+                  ("Unfreeze" . ,(helm-lxc--create-action "unfreeze"))
                   ,connect-action)))))
 
 (defun helm-lxc--build-sources ()
   (cl-loop for (name . tramp-path) in helm-lxc-hosts
            collect
-           (helm-build-sync-source name
-             :candidates (helm-lxc--list-containers tramp-path)
+           (helm-build-in-buffer-source name
+             :init (let ((tramp-path-1 tramp-path))
+                     (lambda ()
+                       (helm-init-candidates-in-buffer
+                           'global
+                         (helm-lxc--list-containers tramp-path-1))))
+             :keymap helm-lxc-map
+             :get-line 'buffer-substring
+             :marked-with-props 'withprop
              :action-transformer 'helm-lxc--action-transformer
              :persistent-action 'helm-lxc--show-container-info
              :persistent-help "Show container info")))
+
+(defun helm-lxc-start-persistent ()
+  "Start container without quitting helm."
+  (interactive)
+  (with-helm-alive-p
+    (helm-attrset 'start-action (helm-lxc--create-action-chain
+                                 t
+                                 ("start" "-d")
+                                 ("wait" "-s" "RUNNING")))
+    (helm-execute-persistent-action 'start-action)
+    (helm-force-update)))
+(put 'helm-lxc-start-persistent 'helm-only t)
+
+(defun helm-lxc-stop-persistent ()
+  "Stop a container without quitting helm."
+  (interactive)
+  (with-helm-alive-p
+    (helm-attrset 'stop-action (helm-lxc--create-action-chain
+                                t
+                                "stop"
+                                ("wait" "-s" "STOPPED")))
+    (helm-execute-persistent-action 'stop-action)
+    (helm-force-update)))
+(put 'helm-lxc-stop-persistent 'helm-only t)
 
 ;;;###autoload
 (defun helm-lxc ()
@@ -265,5 +347,7 @@ address (the first one returned by lxc-info is used)."
   (helm
    :buffer "*helm lxc*"
    :sources (helm-lxc--build-sources)))
+
+(provide 'helm-lxc)
 
 ;;; helm-lxc.el ends here
