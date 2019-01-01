@@ -92,6 +92,7 @@ address (the first one returned by `lxc-info' is used)."
     (set-keymap-parent map helm-map)
     (define-key map (kbd "C-s") #'helm-lxc-start-persistent)
     (define-key map (kbd "C-d") #'helm-lxc-stop-persistent)
+    (define-key map (kbd "C-k") #'helm-lxc-destroy-persistent)
     (define-key map (kbd "M-c") #'helm-lxc-clear-cache-persistent)
     map))
 
@@ -413,6 +414,16 @@ opening connections."
     (helm-lxc--clear-cache)
     (helm-force-update)))
 (put 'helm-lxc-stop-persistent 'helm-only t)
+
+(defun helm-lxc-destroy-persistent ()
+  "Destroy a container without quitting helm."
+  (interactive)
+  (with-helm-alive-p
+    (helm-attrset 'destroy-action helm-lxc--action-destroy)
+    (helm-execute-persistent-action 'destroy-action)
+    (helm-lxc--clear-cache)
+    (helm-force-update)))
+(put 'helm-lxc-destroy-persistent 'helm-only t)
 
 (defun helm-lxc-clear-cache-persistent ()
   "Clear the cache without quitting helm."
