@@ -198,11 +198,11 @@ opening connections."
                                    &optional (marked t) clear-cache
                                    &rest args)
   (lambda (candidate &optional from-chain)
-    (let (rc)
+    (let (rc (last-error 0))
       (dolist (candidate
                (or (and from-chain (list candidate))
                    (helm-lxc--get-candidates marked))
-               rc)
+               last-error)
         (let* ((container (helm-lxc--get-container-from-candidate candidate))
                (name (alist-get 'name container))
                (host (alist-get 'host container))
@@ -211,6 +211,7 @@ opening connections."
           (setq rc (apply #'helm-lxc--process-file
                           cmd nil nil nil "-n" name args))
           (unless (zerop rc)
+            (setq last-error rc)
             (message "helm-lxc: lxc-%s on %s failed with return code %d"
                      action name rc))
           (when clear-cache
@@ -218,20 +219,21 @@ opening connections."
 
 (defun helm-lxc--create-action-chain (marked clear-cache &rest actions)
   (lambda (_candidate)
-    (dolist (candidate (helm-lxc--get-candidates marked))
-      (catch 'break
-        (dolist (action actions)
-          (let ((rc (pcase action
-                      ((pred stringp)
-                       (funcall (helm-lxc--create-action action nil clear-cache)
-                                candidate t))
-                      ((pred functionp)
-                       (funcall action candidate))
-                      (`(,name . ,args)
-                       (funcall (apply #'helm-lxc--create-action
-                                       name nil clear-cache args)
-                                candidate t))
-                      (bad (error "Bad action: %S" bad)))))
+    (let ((rc 0))
+      (dolist (candidate (helm-lxc--get-candidates marked) rc)
+        (catch 'break
+          (dolist (action actions)
+            (setq rc (pcase action
+                       ((pred stringp)
+                        (funcall (helm-lxc--create-action action nil clear-cache)
+                                 candidate t))
+                       ((pred functionp)
+                        (funcall action candidate))
+                       (`(,name . ,args)
+                        (funcall (apply #'helm-lxc--create-action
+                                        name nil clear-cache args)
+                                 candidate t))
+                       (bad (error "Bad action: %S" bad))))
             (unless (and rc (zerop rc))
               (throw 'break rc))))))))
 
@@ -255,7 +257,9 @@ opening connections."
          (buffer (shell (format "*shell %s@%s*" attach-user name)))
          (proc (get-buffer-process buffer)))
     (when (and proc helm-lxc-clean-up-on-shell-exit)
-      (add-function :after (process-sentinel proc) #'helm-lxc--process-sentinel))))
+      (add-function :after (process-sentinel proc)
+                    #'helm-lxc--process-sentinel))
+    0))
 
 (defun helm-lxc--connect-to-host (_candidate)
   (let* ((candidate (car (helm-lxc--get-candidates)))
@@ -268,7 +272,9 @@ opening connections."
          (buffer (shell (format "*shell %s@%s*" user hostname)))
          (proc (get-buffer-process buffer)))
     (when (and proc helm-lxc-clean-up-on-shell-exit)
-      (add-function :after (process-sentinel proc) #'helm-lxc--process-sentinel))))
+      (add-function :after (process-sentinel proc)
+                    #'helm-lxc--process-sentinel))
+    0))
 
 (defun helm-lxc--show-container-info (_candidate)
   (let* ((buffer (get-buffer-create "*helm lxc info*"))
