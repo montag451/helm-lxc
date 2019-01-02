@@ -31,6 +31,7 @@
 (require 'tramp)
 (require 'lxc-tramp)
 (require 'subr-x)
+(require 'shell)
 (eval-when-compile
   (require 'cl-lib))
 
@@ -238,6 +239,23 @@ opening connections."
             (unless (and rc (zerop rc))
               (throw 'break rc))))))))
 
+(defun helm-lxc--spawn-shell (name)
+  (let* ((remote (file-remote-p default-directory))
+         (shell-file-name "/bin/bash")
+         (histfile-env-name "HISTFILE")
+         (prev-histfile (getenv histfile-env-name)))
+    (unwind-protect
+        (let ((histfile (expand-file-name (concat remote "~/.bash_history")))
+              (tramp-histfile-override nil))
+          (when remote
+            (setenv histfile-env-name histfile))
+          (let* ((buffer (shell name))
+                 (proc (get-buffer-process buffer)))
+            (when (and proc helm-lxc-clean-up-on-shell-exit)
+              (add-function :after (process-sentinel proc)
+                            #'helm-lxc--process-sentinel))))
+      (setenv histfile-env-name prev-histfile))))
+
 (defun helm-lxc--attach (_candidate)
   (let* ((candidate (car (helm-lxc--get-candidates)))
          (container (helm-lxc--get-container-from-candidate candidate))
@@ -255,13 +273,8 @@ opening connections."
                              (format "%s:%s@%s:"
                                      attach-method
                                      attach-user
-                                     attach-host)))
-         (shell-file-name "/bin/bash")
-         (buffer (shell (format "*shell %s@%s*" attach-user name)))
-         (proc (get-buffer-process buffer)))
-    (when (and proc helm-lxc-clean-up-on-shell-exit)
-      (add-function :after (process-sentinel proc)
-                    #'helm-lxc--process-sentinel))
+                                     attach-host))))
+    (helm-lxc--spawn-shell (format "*shell %s@%s*" attach-user name))
     0))
 
 (defun helm-lxc--connect-to-host (_candidate)
@@ -270,13 +283,8 @@ opening connections."
          (host (alist-get 'host container))
          (user (or (file-remote-p host 'user) "unknown"))
          (hostname (file-remote-p host 'host))
-         (default-directory (or host default-directory))
-         (shell-file-name "/bin/bash")
-         (buffer (shell (format "*shell %s@%s*" user hostname)))
-         (proc (get-buffer-process buffer)))
-    (when (and proc helm-lxc-clean-up-on-shell-exit)
-      (add-function :after (process-sentinel proc)
-                    #'helm-lxc--process-sentinel))
+         (default-directory (or host default-directory)))
+    (helm-lxc--spawn-shell (format "*shell %s@%s*" user hostname))
     0))
 
 (defun helm-lxc--show-container-info (_candidate)
