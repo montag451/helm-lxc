@@ -68,11 +68,11 @@
 (defcustom helm-lxc-hosts '(("localhost" . "/sudo::"))
   "Alist of hosts to check for containers.
 Each member of the alist is of the form (NAME . TRAMP-PATH).
-TRAMP-PATH specify where to get information about
-containers. NAME is the name of the entry and is used for display
-purpose. If you use nil as TRAMP-PATH for an entry of the alist,
-all the commands for this entry will be run on the local machine
-as the user running Emacs."
+TRAMP-PATH specify where to get information about containers.
+NAME is the name of the entry and is used for display purpose.
+If you use nil as TRAMP-PATH for an entry of the alist, all the
+commands for this entry will be run on the local machine as the
+user running Emacs."
   :group 'helm-lxc
   :type '(alist :key-type (string :tag "Name")
                 :value-type (string :tag "Tramp file name")))
@@ -86,7 +86,7 @@ exits its buffer is killed and its window, if any, is quitted."
 
 (defcustom helm-lxc-attach-with-ssh nil
   "Attach to the container using SSH instead of `lxc-tramp'.
-If nil, SSH will never be used to attach to the container. If
+If nil, SSH will never be used to attach to the container.  If
 non-nil, SSH will be used if the container has at least an IP
 address (the first one returned by `lxc-info' is used)."
   :group 'helm-lxc
@@ -109,12 +109,15 @@ address (the first one returned by `lxc-info' is used)."
 (defvar helm-lxc--cache (make-hash-table :test 'equal))
 
 (defun helm-lxc--face-from-state (state)
+  "Return the face used to colorize a container in state STATE."
   (pcase state
     ("running" 'helm-lxc-face-running)
     ("stopped" 'helm-lxc-face-stopped)
     ("frozen" 'helm-lxc-face-frozen)))
 
 (defun helm-lxc--process-sentinel (proc _event)
+  "Kill the buffer associated with PROC.
+It also quit the window displaying the buffer if any."
   (unless (process-live-p proc)
     (let* ((buffer (process-buffer proc))
            (win (get-buffer-window buffer)))
@@ -125,11 +128,19 @@ address (the first one returned by `lxc-info' is used)."
 (defun helm-lxc--process-file (&rest args)
   "Run `process-file' with `non-essential' set to nil.
 Helm set `non-essential' to non-nil which prevent TRAMP from
-opening connections."
+opening connections.  ARGS is passed as-is to `process-file'."
   (let ((non-essential))
     (apply #'process-file args)))
 
 (defun helm-lxc--process-lines (host program &optional delete-trailing-ws &rest args)
+  "Execute PROGRAM on HOST with ARGS, returning its output as a list of lines.
+It is an equivalent of `process-lines' working also on remote
+machines.  HOST is a path that will be used to set the
+`default-directory' used to run PROGRAM.  If HOST is a remote
+path (i.e `file-remote-p' returns a non-nil value for HOST),
+PROGRAM will be run on the remote host.  If DELETE-TRAILING-WS is
+non-nil trailing whitespaces will be removed from every lines of
+output."
   (with-temp-buffer
     (let ((default-directory (or host default-directory)))
       (when (zerop (apply 'helm-lxc--process-file program nil t nil args))
@@ -147,6 +158,7 @@ opening connections."
           (nreverse lines))))))
 
 (defun helm-lxc--list-containers (host)
+  "List containers on HOST."
   (if-let ((containers (gethash host helm-lxc--cache)))
       containers
     (puthash host
@@ -160,6 +172,7 @@ opening connections."
              helm-lxc--cache)))
 
 (defun helm-lxc--get-container-info (host container)
+  "Get information for CONTAINER on HOST."
   (let* ((state (downcase (car (helm-lxc--process-lines
                                 host
                                 "lxc-info"
@@ -189,18 +202,23 @@ opening connections."
       (ips . ,ips))))
 
 (defun helm-lxc--get-candidates (&optional marked)
+  "Get selected or marked candidates.
+If MARKED is non-nil, returns all candidates currently marked."
   (or (and marked (helm-marked-candidates :all-sources t))
       (list (helm-get-selection nil 'withprop))))
 
 (defun helm-lxc--get-container-from-candidate (candidate)
+  "Extract container information from CANDIDATE."
   (get-text-property 0 'helm-lxc candidate))
 
 (defun helm-lxc--clear-cache-for-candidate (candidate)
+  "Clear the cache for CANDIDATE."
   (let* ((container (helm-lxc--get-container-from-candidate candidate))
          (host (alist-get 'host container)))
     (puthash host nil helm-lxc--cache)))
 
 (defun helm-lxc--clear-cache (&optional _candidate)
+  "Clear the cache for all marked candidates."
   (let ((candidates (helm-lxc--get-candidates t)))
     (dolist (candidate candidates)
       (helm-lxc--clear-cache-for-candidate candidate))))
@@ -208,6 +226,11 @@ opening connections."
 (cl-defun helm-lxc--create-action (action
                                    &optional (marked t) clear-cache
                                    &rest args)
+  "Create an action that will execute ACTION.
+ACTION is an LXC command (e.g \"stop\", \"start\", ...).  If
+MARKED is non-nil, ACTION is executed for each marked containers.
+If CLEAR-CACHE is non-nil, it means that the cache for each
+candidates is cleared."
   (lambda (candidate &optional from-chain)
     (let (rc (last-error 0))
       (dolist (candidate
@@ -229,6 +252,9 @@ opening connections."
             (helm-lxc--clear-cache-for-candidate candidate)))))))
 
 (defun helm-lxc--create-action-chain (marked clear-cache &rest actions)
+  "Create an action that will execute ACTIONS sequencially.
+See `helm-lxc--create-action' for an explanation of the MARKED
+and CLEAR-CACHE arguments."
   (lambda (_candidate)
     (let ((rc 0))
       (dolist (candidate (helm-lxc--get-candidates marked) rc)
@@ -249,6 +275,7 @@ opening connections."
               (throw 'break rc))))))))
 
 (defun helm-lxc--spawn-shell (name)
+  "Spawn a shell whose buffer name is NAME."
   (let* ((remote (file-remote-p default-directory))
          (shell-file-name "/bin/bash")
          (histfile-env-name "HISTFILE")
@@ -266,6 +293,7 @@ opening connections."
       (setenv histfile-env-name prev-histfile))))
 
 (defun helm-lxc--attach (_candidate)
+  "Spawn a shell inside the selected container."
   (let* ((candidate (car (helm-lxc--get-candidates)))
          (container (helm-lxc--get-container-from-candidate candidate))
          (name (alist-get 'name container))
@@ -287,6 +315,7 @@ opening connections."
     0))
 
 (defun helm-lxc--connect-to-host (_candidate)
+  "Connect to the host where the selected container is present."
   (let* ((candidate (car (helm-lxc--get-candidates)))
          (container (helm-lxc--get-container-from-candidate candidate))
          (host (alist-get 'host container))
@@ -297,6 +326,7 @@ opening connections."
     0))
 
 (defun helm-lxc--show-container-info (_candidate)
+  "Show information about the selected container in a buffer."
   (let* ((buffer (get-buffer-create "*helm lxc info*"))
          (candidate (car (helm-lxc--get-candidates)))
          (container (helm-lxc--get-container-from-candidate candidate))
@@ -381,6 +411,7 @@ opening connections."
    'helm-lxc--attach))
 
 (defun helm-lxc--action-transformer (_actions _candidate)
+  "Compute the actions that can be executed for the selected/marked containers."
   (let* ((candidates (helm-lxc--get-candidates t))
          (nb-candidates (length candidates))
          (states (mapcar
@@ -418,6 +449,8 @@ opening connections."
         ("frozen" `(("Unfreeze" . ,helm-lxc--action-unfreeze))))))))
 
 (defun helm-lxc--build-sources ()
+  "Create the helm sources used by `helm-lxc'.
+It returns one source per entry in `helm-lxc-hosts'."
   (cl-loop for (name . tramp-path) in helm-lxc-hosts
            collect
            (helm-build-in-buffer-source name
@@ -474,6 +507,7 @@ opening connections."
 
 ;;;###autoload
 (defun helm-lxc ()
+  "Bring up the `helm-lxc' interface."
   (interactive)
   (helm
    :buffer "*helm lxc*"
