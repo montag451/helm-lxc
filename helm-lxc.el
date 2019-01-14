@@ -1,6 +1,6 @@
 ;;; helm-lxc.el --- Helm interface to manage LXC containers -*- lexical-binding: t -*-
 
-;; Copyright (C) 2018 montag451
+;; Copyright (C) 2019 montag451
 
 ;; Author: montag451
 ;; URL: https://github.com/montag451/helm-lxc
