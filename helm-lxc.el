@@ -80,7 +80,7 @@ user running Emacs."
 (defcustom helm-lxc-clean-up-on-shell-exit nil
   "Do some cleanup when a shell exits.
 If non-nil, when a shell (created by attaching to a container)
-exits its buffer is killed and its window, if any, is quitted."
+exits its buffer is killed and its window, if any, is quit."
   :group 'helm-lxc
   :type 'boolean)
 
@@ -117,7 +117,7 @@ address (the first one returned by `lxc-info' is used)."
 
 (defun helm-lxc--process-sentinel (proc _event)
   "Kill the buffer associated with PROC.
-It also quit the window displaying the buffer if any."
+It also quits the window displaying the buffer if any."
   (unless (process-live-p proc)
     (let* ((buffer (process-buffer proc))
            (win (get-buffer-window buffer)))
@@ -139,7 +139,7 @@ machines.  HOST is a path that will be used to set the
 `default-directory' used to run PROGRAM.  If HOST is a remote
 path (i.e `file-remote-p' returns a non-nil value for HOST),
 PROGRAM will be run on the remote host.  If DELETE-TRAILING-WS is
-non-nil trailing whitespaces will be removed from every lines of
+non-nil, trailing whitespace will be removed from every line of
 output."
   (with-temp-buffer
     (let ((default-directory (or host default-directory)))
@@ -227,7 +227,7 @@ If MARKED is non-nil, returns all candidates currently marked."
                                    &optional (marked t) clear-cache
                                    &rest args)
   "Create an action that will execute ACTION.
-ACTION is an LXC command (e.g \"stop\", \"start\", ...).  If
+ACTION is a LXC command (e.g \"stop\", \"start\", ...).  If
 MARKED is non-nil, ACTION is executed for each marked containers.
 If CLEAR-CACHE is non-nil, it means that the cache for each
 candidates is cleared."
@@ -252,7 +252,7 @@ candidates is cleared."
             (helm-lxc--clear-cache-for-candidate candidate)))))))
 
 (defun helm-lxc--create-action-chain (marked clear-cache &rest actions)
-  "Create an action that will execute ACTIONS sequencially.
+  "Create an action that will execute ACTIONS sequentially.
 See `helm-lxc--create-action' for an explanation of the MARKED
 and CLEAR-CACHE arguments."
   (lambda (_candidate)
