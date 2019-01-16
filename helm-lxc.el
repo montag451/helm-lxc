@@ -106,6 +106,16 @@ address (the first one returned by `lxc-info' is used)."
     (define-key map (kbd "M-c") #'helm-lxc-clear-cache-persistent)
     map))
 
+(defvar helm-lxc--help-message
+  "* Helm LXC
+
+* Commands
+\\<helm-lxc-map>
+\\[helm-lxc-start-persistent] Start the selected/marked containers
+\\[helm-lxc-stop-persistent] Stop the selected/marked containers
+\\[helm-lxc-destroy-persistent] Destroy the selected/marked containers
+\\[helm-lxc-clear-cache-persistent] Clean the cache for the selected/marked containers")
+
 (defvar helm-lxc--cache (make-hash-table :test 'equal))
 
 (defun helm-lxc--face-from-state (state)
@@ -464,7 +474,8 @@ It returns one source per entry in `helm-lxc-hosts'."
              :marked-with-props 'withprop
              :action-transformer 'helm-lxc--action-transformer
              :persistent-action 'helm-lxc--show-container-info
-             :persistent-help "Show container info")))
+             :persistent-help "Show container info"
+             :help-message 'helm-lxc--help-message)))
 
 (defun helm-lxc-start-persistent ()
   "Start container without quitting helm."
