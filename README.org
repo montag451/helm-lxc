@@ -1,0 +1,50 @@
+* Helm LXC
+
+=helm-lxc= provides a Helm interface to manage your LXC
+containers. With =helm-lxc= you can list the containers on your local
+machine and on remote machines. You can start, stop, restart, freeze,
+unfreeze your containers. You can also start a shell inside a
+container using =lxc-attach= or SSH.
+
+* Usage
+
+To start =helm-lxc=, type =M-x helm-lxc=.
+
+By default, it will list the privilegied containers running on the
+current machine using sudo. If it's not what you want you can
+customize =helm-lxc-hosts=. For example if you want to list all the
+privilegied and unprivilegied containers running on the current
+machine but also the containers running on a remote machine called
+=foo= (using SSH to connect to the remote machine), you can set
+=helm-lxc-hosts= using the following code:
+
+#+BEGIN_SRC emacs-lisp
+  (setq helm-lxc-hosts
+        '(("localhost" . "/sudo::")
+          ("localhost (unprivilegied) . nil")
+          ("foo" . "/ssh:root@foo:")))
+#+END_SRC
+
+If you want more information about =helm-lxc-hosts=, you can
+consult the documentation of the variable. =helm-lxc= provides other
+variables to customize its behaviour that you can set using =M-x
+customize-group RET helm-lxc=.
+
+Once in the Helm session you can do all the usual things you can do
+with Helm (filter containers, mark them, execute actions on them,
+...). You can type =C-h m= (the default binding to invoke =helm-help=
+while in a Helm session) to get a help buffer. The actions that you
+can execute on a container depends on its state. To show the list of
+available actions, type =C-i= (this is the default binding to invoke
+=helm-select-action= while in a Helm session). =helm-lxc= also
+provides some persistent actions which let you execute some actions
+without quitting the Helm session. The persistent actions provided are
+listed in the following table:
+
+| =C-s= | Start the selected/marked containers               |
+| =C-d= | Stop the selected/marked containers                |
+| =C-k= | Destroy the selected/marked containers             |
+| =M-c= | Clean the cache for the selected/marked containers |
+
+Actions are executed on the selected containers or on the marked
+containers.
