@@ -63,5 +63,5 @@ listed in the following table:
 | =C-k=        | Destroy the selected/marked containers             |
 | =M-c=        | Clean the cache for the selected/marked containers |
 
-Actions are executed on the selected containers or on the marked
+Actions are executed on the selected container or on the marked
 containers.
