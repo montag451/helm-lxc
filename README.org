@@ -21,7 +21,7 @@ machine but also the containers running on a remote machine called
 #+BEGIN_SRC emacs-lisp
   (setq helm-lxc-hosts
         '(("localhost" . "/sudo::")
-          ("localhost (unprivilegied) . nil")
+          ("localhost (unprivilegied)" . nil)
           ("foo" . "/ssh:root@foo:")))
 #+END_SRC
 
