@@ -5,8 +5,8 @@
 ;; Author: montag451
 ;; URL: https://github.com/montag451/helm-lxc
 ;; Keywords: helm, lxc, convenience
-;; Version: 0.1.0
-;; Package-Requires: ((emacs "25") (cl-lib "0.5") (helm "2.9.4") (lxc-tramp "0.1.0"))
+;; Version: 0.2.0
+;; Package-Requires: ((emacs "25") (cl-lib "0.5") (helm "2.9.4") (lxc-tramp "0.2.0"))
 
 ;; This file is NOT part of GNU Emacs.
 
