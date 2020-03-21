@@ -316,7 +316,7 @@ and CLEAR-CACHE arguments."
                           "root"))
          (attach-host (or (and use-ssh ip) name))
          (default-directory (concat
-                             (and host (format "%s|" (substring host 0 -1)))
+                             (if host (format "%s|" (substring host 0 -1)) "/")
                              (format "%s:%s@%s:"
                                      attach-method
                                      attach-user
