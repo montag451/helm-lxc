@@ -312,7 +312,6 @@ and CLEAR-CACHE arguments."
          (use-ssh (and helm-lxc-attach-with-ssh ip))
          (attach-method (or (and use-ssh "ssh") "lxc"))
          (attach-user (or (and use-ssh helm-lxc-attach-ssh-user)
-                          (and (not host) user-login-name)
                           "root"))
          (attach-host (or (and use-ssh ip) name))
          (default-directory (concat
